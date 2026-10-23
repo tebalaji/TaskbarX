@@ -12,6 +12,9 @@
 //   * the app icons are centered on the taskbar (or between the left buttons and the tray),
 //   * the Widgets button is made invisible, non interactive and moved out of the taskbar's bounds.
 //
+// With -w11sm TaskbarX also loads the DLL into the Start menu's app (StartMenuExperienceHost.exe), where it
+// gives the Start menu background the taskbar style (see the Start menu region).
+//
 // Settings are read from HKCU\Software\TaskbarX\Win11 and re-read whenever TaskbarX signals the
 // Local\TaskbarX11Hook_Reload event.
 
@@ -26,6 +29,7 @@
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Foundation.Numerics.h>
 #include <winrt/Windows.System.h>
+#include <winrt/Windows.UI.Core.h>
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Automation.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
@@ -68,6 +72,8 @@ struct HookSettings
     int offset = 0;               // extra horizontal offset for the centered icons, in physical pixels
     int startPadding = 6;         // distance between the left edge and the Start button, in pixels
     int taskbarStyle = 0;         // TaskbarX -tbs; non-zero = clear the XAML background so the accent shows
+    DWORD styleColor = 0x80000000; // TaskbarX -color as ARGB
+    bool startMenuStyle = false;  // also apply the taskbar style to the Start menu
     int animationSpeed = 300;     // ms
     std::wstring animationStyle = L"cubiceaseinout";
     bool debug = false;           // log to %TEMP%\TaskbarX11Hook.log
@@ -108,6 +114,8 @@ static void LoadSettings()
         s.offset = static_cast<int>(ReadDword(key, L"Offset", 0));
         s.startPadding = static_cast<int>(ReadDword(key, L"StartPadding", 6));
         s.taskbarStyle = static_cast<int>(ReadDword(key, L"TaskbarStyle", 0));
+        s.styleColor = ReadDword(key, L"StyleColor", 0x80000000);
+        s.startMenuStyle = ReadDword(key, L"StartMenuStyle", 0) != 0;
         s.animationSpeed = static_cast<int>(ReadDword(key, L"AnimationSpeed", 300));
         s.debug = ReadDword(key, L"Debug", 0) != 0;
 
@@ -885,6 +893,137 @@ static DWORD WINAPI ReloadThread(LPVOID param)
 
 #pragma endregion
 
+#pragma region Start menu
+
+// The Windows 11 Start menu runs in its own app process (StartMenuExperienceHost.exe), so the same DLL is
+// loaded there too. In that process it only restyles the Start menu's background.
+static bool g_isStartMenu = false;
+static HWND g_startWindow = nullptr;
+
+// The Start menu's background is the Border "AcrylicBorder" (its acrylic brush), with the Border
+// "AcrylicOverlay" adding a tint on top. Both are only touched on the Start menu's UI thread.
+struct StartMenuPart
+{
+    winrt::weak_ref<wux::Controls::Border> border;
+    bool isOverlay = false;
+    bool styled = false;
+    wf::IInspectable original{ nullptr }; // local Background (or Opacity for the overlay) from before
+};
+
+static std::vector<StartMenuPart> g_startMenuParts;
+static bool g_startMenuVisibilityHooked = false;
+
+// The taskbar style (-tbs) and color (-color) applied to the Start menu background.
+static wuxm::Brush MakeStartMenuBrush(HookSettings const& settings)
+{
+    const auto argb = settings.styleColor;
+    const winrt::Windows::UI::Color color{ static_cast<uint8_t>(argb >> 24), static_cast<uint8_t>(argb >> 16),
+                                           static_cast<uint8_t>(argb >> 8), static_cast<uint8_t>(argb) };
+    auto opaque = color;
+    opaque.A = 255;
+
+    switch (settings.taskbarStyle)
+    {
+    case 2: // blur
+    case 3: // acrylic
+    {
+        // Backdrop, like the Start menu's own acrylic: HostBackdrop doesn't render in this window.
+        wuxm::AcrylicBrush acrylic;
+        acrylic.BackgroundSource(wuxm::AcrylicBackgroundSource::Backdrop);
+        acrylic.TintColor(opaque);
+        acrylic.FallbackColor(color);
+        const double tint = settings.taskbarStyle == 2 ? 0.0 : color.A / 255.0;
+        acrylic.TintOpacity(tint);
+        acrylic.TintLuminosityOpacity(winrt::box_value(tint).as<wf::IReference<double>>());
+        return acrylic;
+    }
+    case 5: // opaque
+        return wuxm::SolidColorBrush(opaque);
+    default: // transparent, transparent gradient
+        return wuxm::SolidColorBrush(color);
+    }
+}
+
+static void ApplyStartMenuStyle()
+{
+    const auto settings = GetSettings();
+    const bool on = settings.active && settings.startMenuStyle && settings.taskbarStyle != 0;
+    const auto brush = on ? MakeStartMenuBrush(settings) : nullptr;
+
+    std::erase_if(g_startMenuParts, [](auto const& part) { return !part.border.get(); });
+    for (auto& part : g_startMenuParts)
+    {
+        auto border = part.border.get();
+        const auto property = part.isOverlay ? wux::UIElement::OpacityProperty() : wux::Controls::Border::BackgroundProperty();
+        if (on)
+        {
+            if (!part.styled)
+            {
+                part.original = LocalValueOf(border, property);
+                part.styled = true;
+            }
+            if (part.isOverlay)
+            {
+                border.Opacity(0);
+            }
+            else
+            {
+                border.Background(brush);
+            }
+        }
+        else if (part.styled)
+        {
+            RestoreLocalValue(border, property, part.original);
+            part.styled = false;
+            part.original = nullptr;
+        }
+    }
+}
+
+static void OnStartMenuTreeChange(IXamlDiagnostics* diagnostics, VisualElement const& element, VisualMutationType mutationType)
+{
+    if (mutationType != Add || !element.Name)
+    {
+        return;
+    }
+    const bool isBackground = wcscmp(element.Name, L"AcrylicBorder") == 0;
+    const bool isOverlay = wcscmp(element.Name, L"AcrylicOverlay") == 0;
+    if (!isBackground && !isOverlay)
+    {
+        return;
+    }
+
+    wf::IInspectable inspectable;
+    winrt::check_hresult(diagnostics->GetIInspectableFromHandle(element.Handle, reinterpret_cast<::IInspectable**>(winrt::put_abi(inspectable))));
+    auto border = inspectable.try_as<wux::Controls::Border>();
+    if (!border)
+    {
+        return;
+    }
+    Log(L"Start menu %s found", element.Name);
+    g_startMenuParts.push_back({ winrt::make_weak(border), isOverlay });
+
+    if (!g_startMenuVisibilityHooked)
+    {
+        // TaskbarX can't signal this process, so pick up setting changes (including turning off) every
+        // time the Start menu opens.
+        if (auto window = wux::Window::Current())
+        {
+            window.VisibilityChanged([](auto&&, winrt::Windows::UI::Core::VisibilityChangedEventArgs const& args) {
+                if (args.Visible())
+                {
+                    LoadSettings();
+                    ApplyStartMenuStyle();
+                }
+            });
+            g_startMenuVisibilityHooked = true;
+        }
+    }
+    ApplyStartMenuStyle();
+}
+
+#pragma endregion
+
 #pragma region XAML diagnostics (TAP)
 
 struct VisualTreeWatcher : winrt::implements<VisualTreeWatcher, IVisualTreeServiceCallback2, winrt::non_agile>
@@ -915,7 +1054,11 @@ struct VisualTreeWatcher : winrt::implements<VisualTreeWatcher, IVisualTreeServi
     {
         try
         {
-            if (mutationType == Add)
+            if (g_isStartMenu)
+            {
+                OnStartMenuTreeChange(m_diagnostics.get(), element, mutationType);
+            }
+            else if (mutationType == Add)
             {
                 if (element.Type && wcscmp(element.Type, L"Taskbar.TaskbarFrame") == 0)
                 {
@@ -977,14 +1120,22 @@ struct TaskbarX11Tap : winrt::implements<TaskbarX11Tap, IObjectWithSite, winrt::
         try
         {
             LoadSettings();
-            Log(L"SetSite (explorer pid %lu)", GetCurrentProcessId());
+            Log(L"SetSite (pid %lu%s)", GetCurrentProcessId(), g_isStartMenu ? L", Start menu" : L", explorer");
 
             m_site.copy_from(site);
             std::lock_guard lock(g_watcherLock);
             g_watcher = nullptr; // only one watcher at a time; a second injection replaces the first
             if (m_site)
             {
-                StartReloadListener();
+                if (g_isStartMenu)
+                {
+                    // TaskbarX checks this window property to know the hook is loaded in the Start menu.
+                    SetPropW(g_startWindow, L"TaskbarX11Hook", reinterpret_cast<HANDLE>(1));
+                }
+                else
+                {
+                    StartReloadListener();
+                }
                 g_watcher = winrt::make_self<VisualTreeWatcher>(m_site.as<IXamlDiagnostics>());
                 g_watcher->Advise();
             }
@@ -1075,30 +1226,52 @@ static DWORD WINAPI InitializeDiagnosticsThread(LPVOID)
     return 0;
 }
 
+static void StartInjection(HWND window)
+{
+    static std::once_flag once;
+    std::call_once(once, [window] {
+        // Keep the DLL loaded after TaskbarX removes its hook; our threads and XAML callbacks live on.
+        HMODULE pinned = nullptr;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+            reinterpret_cast<LPCWSTR>(&StartInjection), &pinned);
+
+        g_startWindow = window;
+        LoadSettings();
+        Log(L"Inject message received in pid %lu%s", GetCurrentProcessId(), g_isStartMenu ? L" (Start menu)" : L"");
+        if (HANDLE thread = CreateThread(nullptr, 0, InitializeDiagnosticsThread, nullptr, 0, nullptr))
+        {
+            CloseHandle(thread);
+        }
+    });
+}
+
+static const UINT g_injectMessage = RegisterWindowMessageW(L"TaskbarX11Hook_Inject");
+
 // WH_CALLWNDPROC hook that TaskbarX installs on the taskbar's thread to get this DLL into explorer.exe.
 // It starts the XAML diagnostics connection when TaskbarX sends the TaskbarX11Hook_Inject message.
 extern "C" LRESULT CALLBACK TaskbarX11HookProc(int code, WPARAM wParam, LPARAM lParam)
 {
-    static const UINT injectMessage = RegisterWindowMessageW(L"TaskbarX11Hook_Inject");
     if (code == HC_ACTION)
     {
         const auto message = reinterpret_cast<const CWPSTRUCT*>(lParam);
-        if (message->message == injectMessage)
+        if (message->message == g_injectMessage)
         {
-            static std::once_flag once;
-            std::call_once(once, [] {
-                // Keep the DLL loaded after TaskbarX removes its hook; our threads and XAML callbacks live on.
-                HMODULE pinned = nullptr;
-                GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
-                    reinterpret_cast<LPCWSTR>(&TaskbarX11HookProc), &pinned);
+            StartInjection(message->hwnd);
+        }
+    }
+    return CallNextHookEx(nullptr, code, wParam, lParam);
+}
 
-                LoadSettings();
-                Log(L"Inject message received in explorer pid %lu", GetCurrentProcessId());
-                if (HANDLE thread = CreateThread(nullptr, 0, InitializeDiagnosticsThread, nullptr, 0, nullptr))
-                {
-                    CloseHandle(thread);
-                }
-            });
+// WH_GETMESSAGE variant for the Start menu. Windows suspends the Start menu app while it's closed, so
+// TaskbarX posts the message instead of sending it; it's picked up the next time the Start menu opens.
+extern "C" LRESULT CALLBACK TaskbarX11GetMsgProc(int code, WPARAM wParam, LPARAM lParam)
+{
+    if (code == HC_ACTION && wParam == PM_REMOVE)
+    {
+        const auto message = reinterpret_cast<const MSG*>(lParam);
+        if (message->message == g_injectMessage)
+        {
+            StartInjection(message->hwnd);
         }
     }
     return CallNextHookEx(nullptr, code, wParam, lParam);
@@ -1134,6 +1307,11 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
     {
         g_module = module;
         DisableThreadLibraryCalls(module);
+
+        wchar_t exe[MAX_PATH];
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        const std::wstring_view exePath(exe);
+        g_isStartMenu = exePath.size() >= 27 && _wcsicmp(exe + exePath.size() - 27, L"StartMenuExperienceHost.exe") == 0;
     }
     return TRUE;
 }

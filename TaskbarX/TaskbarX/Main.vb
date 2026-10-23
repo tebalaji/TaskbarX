@@ -175,6 +175,9 @@ Public Class Main
                 If argument.Contains("-w11dbg=") Then
                     Settings.Win11Debug = CInt(val(1))
                 End If
+                If argument.Contains("-w11sm=") Then
+                    Settings.Win11StartMenuStyle = CInt(val(1))
+                End If
             Next
 
             If togglegiven Then

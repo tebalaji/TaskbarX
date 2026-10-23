@@ -150,6 +150,11 @@ Public Class Taskbar11
             key.SetValue("CenterInBetween", Settings.CenterInBetween, RegistryValueKind.DWord)
             key.SetValue("Offset", Settings.PrimaryTaskbarOffset, RegistryValueKind.DWord)
             key.SetValue("TaskbarStyle", Settings.TaskbarStyle, RegistryValueKind.DWord)
+            key.SetValue("StartMenuStyle", Settings.Win11StartMenuStyle, RegistryValueKind.DWord)
+            'ARGB (little-endian bytes B, G, R, A); the -color alpha is a percentage
+            Dim alpha = CByte(Math.Max(0, Math.Min(100, Settings.TaskbarStyleAlpha)) * 2.55)
+            Dim argb = BitConverter.ToInt32(New Byte() {CByte(Settings.TaskbarStyleBlue), CByte(Settings.TaskbarStyleGreen), CByte(Settings.TaskbarStyleRed), alpha}, 0)
+            key.SetValue("StyleColor", argb, RegistryValueKind.DWord)
             key.SetValue("AnimationSpeed", Settings.AnimationSpeed, RegistryValueKind.DWord)
             key.SetValue("AnimationStyle", Settings.AnimationStyle, RegistryValueKind.String)
             key.SetValue("Debug", Settings.Win11Debug, RegistryValueKind.DWord)
@@ -223,6 +228,82 @@ Public Class Taskbar11
         End Try
     End Function
 
+    <DllImport("user32.dll")>
+    Private Shared Function PostMessage(ByVal hWnd As IntPtr, ByVal msg As UInteger, ByVal wParam As IntPtr, ByVal lParam As IntPtr) As Boolean
+    End Function
+
+    <DllImport("user32.dll", CharSet:=CharSet.Unicode)>
+    Private Shared Function GetProp(ByVal hWnd As IntPtr, ByVal lpString As String) As IntPtr
+    End Function
+
+    Private Const WH_GETMESSAGE As Integer = 3
+    Private Shared startMenuHook As IntPtr = IntPtr.Zero
+    Private Shared startMenuHookWindow As IntPtr = IntPtr.Zero
+
+    'The Start menu's window (a CoreWindow of StartMenuExperienceHost.exe). Found by process, not by its title,
+    'which is translated on other Windows languages.
+    Private Shared Function FindStartMenuWindow() As IntPtr
+        Dim startMenuPids = Process.GetProcessesByName("StartMenuExperienceHost").Select(Function(p) CUInt(p.Id)).ToList()
+        If startMenuPids.Count = 0 Then
+            Return IntPtr.Zero
+        End If
+        'EnumWindows skips the windows of Store apps like this one; FindWindowEx doesn't.
+        Dim hwnd As IntPtr = IntPtr.Zero
+        Do
+            hwnd = Win32.FindWindowEx(IntPtr.Zero, hwnd, "Windows.UI.Core.CoreWindow", Nothing)
+            If hwnd = IntPtr.Zero Then
+                Return IntPtr.Zero
+            End If
+            Dim pid As UInteger
+            GetWindowThreadProcessId(hwnd, pid)
+            If startMenuPids.Contains(pid) Then
+                Return hwnd
+            End If
+        Loop
+    End Function
+
+    'Loads the hook into the Start menu so it can apply the taskbar style there as well. Windows suspends the
+    'Start menu app while it's closed, so the inject message is posted and the hook stays installed until the
+    'Start menu has been opened and the DLL marked its window as loaded.
+    Private Shared Sub InjectStartMenu()
+        Dim startWindow = FindStartMenuWindow()
+        If startWindow = IntPtr.Zero Then
+            Return
+        End If
+
+        If Not GetProp(startWindow, "TaskbarX11Hook") = IntPtr.Zero Then
+            If Not startMenuHook = IntPtr.Zero Then
+                UnhookWindowsHookEx(startMenuHook)
+                startMenuHook = IntPtr.Zero
+                Console.WriteLine("TaskbarX11Hook loaded into the Start menu")
+            End If
+            Return
+        End If
+
+        If Not startMenuHook = IntPtr.Zero Then
+            If startMenuHookWindow = startWindow Then
+                Return 'still waiting for the Start menu to be opened
+            End If
+            UnhookWindowsHookEx(startMenuHook) 'the Start menu app restarted
+            startMenuHook = IntPtr.Zero
+        End If
+
+        Dim dllPath As String = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, HookDll)
+        Dim hModule As IntPtr = LoadLibrary(dllPath)
+        Dim hookProc As IntPtr = GetProcAddress(hModule, "TaskbarX11GetMsgProc")
+        If hookProc = IntPtr.Zero Then
+            Return
+        End If
+
+        Dim startMenuPid As UInteger
+        Dim threadId = GetWindowThreadProcessId(startWindow, startMenuPid)
+        startMenuHook = SetWindowsHookEx(WH_GETMESSAGE, hookProc, hModule, threadId)
+        startMenuHookWindow = startWindow
+        If Not startMenuHook = IntPtr.Zero Then
+            PostMessage(startWindow, RegisterWindowMessage("TaskbarX11Hook_Inject"), IntPtr.Zero, IntPtr.Zero)
+        End If
+    End Sub
+
     'Keeps the hook loaded for as long as TaskbarX runs, also after explorer.exe restarts.
     Public Shared Sub Run()
         Dim injectedPid As UInteger = 0
@@ -235,6 +316,9 @@ Public Class Taskbar11
                     If Not explorerPid = injectedPid AndAlso Inject(Shell_TrayWnd, threadId, explorerPid) Then
                         injectedPid = explorerPid
                     End If
+                End If
+                If Settings.Win11StartMenuStyle = 1 AndAlso Not Settings.TaskbarStyle = 0 Then
+                    InjectStartMenu()
                 End If
             Catch ex As Exception
                 Console.WriteLine(ex.Message)

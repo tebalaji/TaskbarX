@@ -46,6 +46,7 @@ Public Class Settings
     Public Shared Win11HideWidgets As Integer
     Public Shared Win11StartPadding As Integer
     Public Shared Win11Debug As Integer
+    Public Shared Win11StartMenuStyle As Integer
 
     'If on battery TaskbarX will override with these
     Public Shared OnBatteryAnimationStyle As String

@@ -49,13 +49,14 @@ TaskbarX now also works with the Windows 11 taskbar. Because that taskbar is dra
 
 Turning it off: `TaskbarX.exe -stop`, the Configurator's "Stop TaskbarX" button, or `TaskbarX.exe -toggle` (the `TaskbarX On-Off` shortcut that `build-win11.ps1` creates) to switch between on and off. When it's off, every value the helper changed is put back to what Explorer had and it stops watching the taskbar's layout, so you get the default Windows taskbar. The helper DLL itself stays loaded, idle, until Explorer restarts.
 
-Extra command-line options (all default to `1`; the Configurator's Extra tab has checkboxes for the first three):
+Extra command-line options (defaults as noted; the Configurator's Extra tab has checkboxes for the first four):
 
 | Option | Meaning |
 | --- | --- |
-| `-w11sl=0/1` | Move the Start button to the left |
-| `-w11kl=0/1` | Keep Search and Task View next to Start (`0` centers them with the app icons; the open search box and its popup then still appear on the left, where Windows places them) |
-| `-w11hw=0/1` | Hide the Widgets button |
+| `-w11sl=0/1` | Move the Start button to the left (default `1`) |
+| `-w11kl=0/1` | Keep Search and Task View next to Start (default `1`; `0` centers them with the app icons; the open search box and its popup then still appear on the left, where Windows places them) |
+| `-w11hw=0/1` | Hide the Widgets button (default `1`) |
+| `-w11sm=0/1` | Also give the Start menu the taskbar style and color (default `0`). Transparent shows what's behind the Start menu, Blur and Acrylic blur it, Opaque uses the solid color. Applied from the first time the Start menu is opened after TaskbarX starts |
 | `-w11sp=N` | Gap between the screen edge and the Start button, in pixels (default `6`) |
 | `-w11dbg=1` | Write a debug log to `%TEMP%\TaskbarX11Hook.log` |
 

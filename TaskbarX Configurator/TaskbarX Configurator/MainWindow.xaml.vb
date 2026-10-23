@@ -2290,7 +2290,8 @@ Class MainWindow
     Private Function Win11Parameters() As String
         Return "-w11sl=" & If(CheckBoxW11Start.IsChecked = True, "1", "0") & " " &
                "-w11kl=" & If(CheckBoxW11Buttons.IsChecked = True, "1", "0") & " " &
-               "-w11hw=" & If(CheckBoxW11Widgets.IsChecked = True, "1", "0") & " "
+               "-w11hw=" & If(CheckBoxW11Widgets.IsChecked = True, "1", "0") & " " &
+               "-w11sm=" & If(CheckBoxW11StartMenu.IsChecked = True, "1", "0") & " "
     End Function
 
     Private Sub ReadWin11Argument(argument As String, val() As String)
@@ -2305,6 +2306,9 @@ Class MainWindow
         End If
         If argument.Contains("-w11hw=") Then
             CheckBoxW11Widgets.IsChecked = val(1) = "1"
+        End If
+        If argument.Contains("-w11sm=") Then
+            CheckBoxW11StartMenu.IsChecked = val(1) = "1"
         End If
     End Sub
 
