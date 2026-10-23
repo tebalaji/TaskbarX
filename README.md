@@ -60,6 +60,8 @@ Extra command-line options (defaults as noted; the Configurator's Extra tab has 
 | `-w11sp=N` | Gap between the screen edge and the Start button, in pixels (default `6`) |
 | `-w11dbg=1` | Write a debug log to `%TEMP%\TaskbarX11Hook.log` |
 
+Releasing: the [Release workflow](.github/workflows/release.yml) builds everything on GitHub and publishes release `v<VERSION>` with `TaskbarX-<VERSION>-x64.zip` attached. To release, set the new version (like `1.8.1.0`) in the `VERSION` file and in `AssemblyVersion`/`AssemblyFileVersion` of both `My Project\AssemblyInfo.vb` files, then push to `master`. The workflow refuses to run if they don't match. You can also start it from the Actions tab, optionally with "publish" off to only build the zip. The Configurator's update check reads the same `VERSION` file.
+
 Building: run `build-win11.ps1`. It downloads the Windows SDK and C++/WinRT NuGet packages if needed, builds the 64-bit TaskbarX, the hook and the Configurator, and puts them together in `dist\TaskbarX`. Windows 11 support needs the 64-bit TaskbarX.exe, with `TaskbarX11Hook.dll` in the same folder.
 
 ## How to use TaskbarX with Windows 11 (classic taskbar)?

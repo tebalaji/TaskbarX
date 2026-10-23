@@ -1,0 +1,101 @@
+# Builds TaskbarX (64-bit, with Windows 11 support) and publishes it as a GitHub release.
+#
+# Runs when VERSION changes on master: bump VERSION together with AssemblyVersion/AssemblyFileVersion in
+# both My Project\AssemblyInfo.vb files, push, and release v<VERSION> is created with the zip attached.
+# Can also be started from the Actions tab; with "publish" off it only builds and uploads the zip as a
+# workflow artifact.
+name: Release
+
+on:
+  push:
+    branches: [master]
+    paths: [VERSION]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a GitHub release (off = only build and upload the zip as an artifact)
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read and check the version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^\d\.\d\.\d\.\d$') {
+            throw "VERSION '$version' must look like 1.8.0.0 (single digits; the Configurator's update check compares them as text)"
+          }
+          foreach ($file in 'TaskbarX/TaskbarX/My Project/AssemblyInfo.vb', 'TaskbarX Configurator/TaskbarX Configurator/My Project/AssemblyInfo.vb') {
+            if (-not (Select-String -LiteralPath $file -SimpleMatch "AssemblyVersion(""$version"")" -Quiet)) {
+              throw "$file doesn't have AssemblyVersion(""$version""); update it together with VERSION"
+            }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+
+      - name: Check whether this version is already released
+        id: existing
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view '${{ steps.version.outputs.tag }}' --repo '${{ github.repository }}' *> $null
+          $exists = $LASTEXITCODE -eq 0
+          $global:LASTEXITCODE = 0
+          if ($exists) { Write-Host "Release ${{ steps.version.outputs.tag }} already exists; nothing to publish." }
+          "exists=$($exists.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+
+      - name: Cache NuGet packages (Windows SDK, C++/WinRT)
+        uses: actions/cache@v4
+        with:
+          path: packages
+          key: native-packages-${{ hashFiles('TaskbarX11Hook/restore-packages.ps1') }}
+
+      - name: Build
+        shell: pwsh
+        run: ./build-win11.ps1
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $zip = "TaskbarX-${{ steps.version.outputs.version }}-x64.zip"
+          $staging = 'release/TaskbarX'
+          New-Item -ItemType Directory -Force $staging | Out-Null
+          # The On-Off shortcut points at the build machine's path, so leave it out (it runs TaskbarX.exe -toggle).
+          Copy-Item dist/TaskbarX/* $staging -Recurse -Exclude 'app.publish', '*.lnk'
+          Compress-Archive -Path "$staging/*" -DestinationPath $zip
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Upload the zip as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.zip }}
+          path: ${{ steps.package.outputs.zip }}
+
+      - name: Publish the release
+        if: steps.existing.outputs.exists == 'false' && (github.event_name == 'push' || inputs.publish)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = @'
+          Unzip anywhere and run **TaskbarX Configurator.exe** to pick your settings and click Apply (it also sets TaskbarX to start with Windows). Keep all files together; on Windows 11 `TaskbarX.exe` needs `TaskbarX11Hook.dll` next to it.
+
+          Turn it off with the Configurator's "Stop TaskbarX" button or `TaskbarX.exe -stop`, or switch on/off with `TaskbarX.exe -toggle`.
+          '@
+          gh release create '${{ steps.version.outputs.tag }}' '${{ steps.package.outputs.zip }}' `
+            --repo '${{ github.repository }}' `
+            --target '${{ github.sha }}' `
+            --title 'TaskbarX ${{ steps.version.outputs.version }}' `
+            --notes $notes `
+            --generate-notes
