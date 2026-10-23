@@ -763,7 +763,10 @@ static void Relayout(std::shared_ptr<FrameState> const& statePtr)
     double leftEnd = 0;
     if (leftCount > 0)
     {
-        leftDelta = settings.startPadding / scale - items[0].x;
+        // With Windows' own left alignment (TaskbarX sets it) the buttons are already on the left. Leave them
+        // there: Windows opens the Start menu, the search box and its popup at their real positions.
+        const bool alreadyLeft = items[0].x < frameWidth / 4;
+        leftDelta = alreadyLeft ? 0 : settings.startPadding / scale - items[0].x;
         leftEnd = items[leftCount - 1].x + items[leftCount - 1].width + leftDelta;
     }
 

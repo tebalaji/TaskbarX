@@ -79,7 +79,67 @@ Public Class Taskbar11
         Return found
     End Function
 
+    Private Const ExplorerAdvancedKey As String = "Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+    Private Const HWND_BROADCAST As Integer = &HFFFF
+    Private Const WM_SETTINGCHANGE As UInteger = &H1A
+
+    <DllImport("user32.dll", CharSet:=CharSet.Unicode)>
+    Private Shared Function SendMessageTimeout(ByVal hWnd As IntPtr, ByVal msg As UInteger, ByVal wParam As IntPtr, ByVal lParam As String, ByVal flags As UInteger, ByVal timeout As UInteger, ByRef result As IntPtr) As IntPtr
+    End Function
+
+    'Tells explorer to re-read the taskbar settings, like the Settings app does.
+    Private Shared Sub NotifyTaskbarSettingsChanged()
+        Dim result As IntPtr
+        SendMessageTimeout(New IntPtr(HWND_BROADCAST), WM_SETTINGCHANGE, IntPtr.Zero, "TraySettings", 2, 1000, result)
+    End Sub
+
+    'Start on the left: switch Windows to its own left-aligned taskbar (Settings > Personalization > Taskbar >
+    'Taskbar alignment), so Start, Search and Task View really are on the left. Moving them visually is not enough:
+    'the Start menu, the open search box and its popup are placed by Windows at the buttons' real positions.
+    'TaskbarX then only moves the app icons to the center. The previous alignment is saved for Stop.
+    Private Shared Sub ApplyAlignment()
+        Using advanced = Registry.CurrentUser.CreateSubKey(ExplorerAdvancedKey)
+            Using key = Registry.CurrentUser.CreateSubKey(SettingsKey)
+                Dim current = advanced.GetValue("TaskbarAl")
+                If current IsNot Nothing AndAlso CInt(current) = 0 Then
+                    Return
+                End If
+                If key.GetValue("SavedTaskbarAl") Is Nothing Then
+                    '-1 = the value didn't exist (Windows' default, centered)
+                    key.SetValue("SavedTaskbarAl", If(current Is Nothing, -1, CInt(current)), RegistryValueKind.DWord)
+                End If
+                advanced.SetValue("TaskbarAl", 0, RegistryValueKind.DWord)
+            End Using
+        End Using
+        NotifyTaskbarSettingsChanged()
+    End Sub
+
+    'Puts back the taskbar alignment from before ApplyAlignment.
+    Private Shared Sub RestoreAlignment()
+        Using key = Registry.CurrentUser.OpenSubKey(SettingsKey, True)
+            Dim saved = key?.GetValue("SavedTaskbarAl")
+            If saved Is Nothing Then
+                Return
+            End If
+            Using advanced = Registry.CurrentUser.CreateSubKey(ExplorerAdvancedKey)
+                If CInt(saved) = -1 Then
+                    advanced.DeleteValue("TaskbarAl", False)
+                Else
+                    advanced.SetValue("TaskbarAl", CInt(saved), RegistryValueKind.DWord)
+                End If
+            End Using
+            key.DeleteValue("SavedTaskbarAl", False)
+        End Using
+        NotifyTaskbarSettingsChanged()
+    End Sub
+
     Public Shared Sub WriteSettings()
+        If Settings.Win11StartOnLeft = 1 Then
+            ApplyAlignment()
+        Else
+            RestoreAlignment()
+        End If
+
         Using key = Registry.CurrentUser.CreateSubKey(SettingsKey)
             key.SetValue("Active", 1, RegistryValueKind.DWord)
             key.SetValue("StartOnLeft", Settings.Win11StartOnLeft, RegistryValueKind.DWord)
@@ -210,6 +270,7 @@ Public Class Taskbar11
                 key.SetValue("Active", 0, RegistryValueKind.DWord)
             End Using
             SignalReload()
+            RestoreAlignment()
         Catch ex As Exception
             Console.WriteLine(ex.Message)
         End Try
