@@ -30,8 +30,14 @@ Public Class Main
             Settings.RevertZeroBeyondTray = 1
             Settings.TaskbarRounding = 0
             Settings.TaskbarSegments = 0
+            Settings.Win11StartOnLeft = 1
+            Settings.Win11KeepButtonsLeft = 1
+            Settings.Win11HideWidgets = 1
+            Settings.Win11StartPadding = 6
+            Settings.Win11Debug = 0
 
             Dim stopgiven As Boolean = False
+            Dim togglegiven As Boolean = False
 
             'Read the arguments for the settings
             Dim arguments() As String = Environment.GetCommandLineArgs
@@ -39,6 +45,10 @@ Public Class Main
                 Dim val() As String = Split(argument, "=")
                 If argument.Contains("-stop") Then
                     stopgiven = True
+                End If
+                'Stop when TaskbarX is on, start it when it's off. Handy as a shortcut to switch back to the default taskbar.
+                If argument.Contains("-toggle") Then
+                    togglegiven = True
                 End If
                 If argument.Contains("-showstartmenu") Then
                     Win32.ShowStartMenu()
@@ -150,7 +160,31 @@ Public Class Main
                 If argument.Contains("-tbsg=") Then
                     Settings.TaskbarSegments = CInt(val(1))
                 End If
+                If argument.Contains("-w11sl=") Then
+                    Settings.Win11StartOnLeft = CInt(val(1))
+                End If
+                If argument.Contains("-w11kl=") Then
+                    Settings.Win11KeepButtonsLeft = CInt(val(1))
+                End If
+                If argument.Contains("-w11hw=") Then
+                    Settings.Win11HideWidgets = CInt(val(1))
+                End If
+                If argument.Contains("-w11sp=") Then
+                    Settings.Win11StartPadding = CInt(val(1))
+                End If
+                If argument.Contains("-w11dbg=") Then
+                    Settings.Win11Debug = CInt(val(1))
+                End If
             Next
+
+            If togglegiven Then
+                If Taskbar11.WindowsBuild() >= 22000 Then
+                    'On Windows 11 the hook keeps the icons in place even without a running TaskbarX
+                    stopgiven = Taskbar11.IsOn()
+                Else
+                    stopgiven = Process.GetProcessesByName("TaskbarX").Any(Function(p) Not p.Id = Process.GetCurrentProcess.Id)
+                End If
+            End If
 
             'Kill every other running instance of TaskbarX
             Try
@@ -176,6 +210,7 @@ Public Class Main
 
             'Wait for Shell_TrayWnd
             Dim Handle As IntPtr
+            Dim Win11Taskbar As Boolean = False
             Do
                 Console.WriteLine("Waiting for Shell_TrayWnd")
                 Handle = Nothing
@@ -186,14 +221,26 @@ Public Class Main
                 Dim MSTaskSwWClass = Win32.FindWindowEx(ReBarWindow32, CType(0, IntPtr), "MSTaskSwWClass", Nothing)
                 Dim MSTaskListWClass = Win32.FindWindowEx(MSTaskSwWClass, CType(0, IntPtr), "MSTaskListWClass", Nothing)
                 Handle = MSTaskListWClass
+                'Newer Windows 11 builds have no MSTaskListWClass at all
+                Win11Taskbar = Taskbar11.IsXamlTaskbar(Shell_TrayWnd)
                 'Lock the Taskbar
                 '  Win32.PostMessage(Shell_TrayWnd, CUInt(&H111), CType(424, IntPtr), CType(vbNullString, IntPtr))
-            Loop Until Not Handle = Nothing
+            Loop Until Not Handle = Nothing Or Win11Taskbar
 
 
-            Dim Win11Taskbar = Win32.FindWindowEx(Win32.FindWindowByClass("Shell_TrayWnd", CType(0, IntPtr)), CType(0, IntPtr), "Windows.UI.Composition.DesktopWindowContentBridge", Nothing)
-            If Not Win11Taskbar = CType(0, IntPtr) Then
-                'Windows 11 Taskbar present
+            If Win11Taskbar Then
+                'Windows 11 Taskbar present. The Windows 10 centerer can't move its icons, TaskbarX11Hook does it instead.
+                If stopgiven = True Then
+                    noty.Visible = False
+                    Taskbar11.Stop()
+                    ResetTaskbarStyle()
+                    End
+                End If
+
+                Taskbar11.WriteSettings()
+                Dim t11 As Thread = New Thread(AddressOf Taskbar11.Run)
+                t11.Start()
+
                 Settings.DontCenterTaskbar = CInt(Val(1))
             End If
 
@@ -271,6 +318,7 @@ Public Class Main
             Application.Restart()
         ElseIf (e.Button = MouseButtons.Right) Then
             noty.Visible = False
+            Taskbar11.Stop()
             TaskbarCenter.RevertToZero()
             ResetTaskbarStyle()
             End
@@ -384,7 +432,12 @@ Public Class Main
 
 
             ''Win32.SetWindowRgn(CType(trayptr, IntPtr), Win32.CreateRoundRectRgn(-1, -1, tt.Right + 1, tt.Bottom - tt.Top + 1, -1, -1), True)
-            Win32.SetWindowRgn(CType(trayptr, IntPtr), Win32.CreateRectRgn(tt.Left, tt.Top, tt.Right, tt.Bottom), True)
+            If Taskbar11.WindowsBuild() >= 22000 Then
+                'The Windows 11 taskbar has no window region by default; remove ours instead of clipping it to a rectangle
+                Win32.SetWindowRgn(CType(trayptr, IntPtr), IntPtr.Zero, True)
+            Else
+                Win32.SetWindowRgn(CType(trayptr, IntPtr), Win32.CreateRectRgn(tt.Left, tt.Top, tt.Right, tt.Bottom), True)
+            End If
 
 
 

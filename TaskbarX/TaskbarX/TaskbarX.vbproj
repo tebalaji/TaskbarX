@@ -161,6 +161,7 @@
   <ItemGroup>
     <Compile Include="MSAA.vb" />
     <Compile Include="Settings.vb" />
+    <Compile Include="Taskbar11.vb" />
     <Compile Include="TaskbarAnimate.vb" />
     <Compile Include="Easings.vb" />
     <Compile Include="Main.vb" />
@@ -222,6 +223,13 @@
   <ItemGroup>
     <None Include="Resources\icon.ico" />
     <Content Include="StoreLogo-71.ico" />
+  </ItemGroup>
+  <!-- Windows 11 support: the 64-bit hook DLL TaskbarX loads into explorer.exe (build TaskbarX11Hook first). -->
+  <ItemGroup Condition="'$(Platform)' == 'x64'">
+    <Content Include="..\..\TaskbarX11Hook\bin\Release\TaskbarX11Hook.dll" Condition="Exists('..\..\TaskbarX11Hook\bin\Release\TaskbarX11Hook.dll')">
+      <Link>TaskbarX11Hook.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <ItemGroup>
     <COMReference Include="Accessibility">

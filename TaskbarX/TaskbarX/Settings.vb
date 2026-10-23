@@ -40,6 +40,13 @@ Public Class Settings
 
     Public Shared UseUIA As Integer
 
+    'Windows 11 only (see Taskbar11.vb)
+    Public Shared Win11StartOnLeft As Integer
+    Public Shared Win11KeepButtonsLeft As Integer
+    Public Shared Win11HideWidgets As Integer
+    Public Shared Win11StartPadding As Integer
+    Public Shared Win11Debug As Integer
+
     'If on battery TaskbarX will override with these
     Public Shared OnBatteryAnimationStyle As String
 

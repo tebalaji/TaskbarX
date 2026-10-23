@@ -34,7 +34,29 @@ TaskbarX has been in development since 6 may 2018. Also known as FalconX and Fal
 
 
 
-## How to use TaskbarX with Windows 11?
+## Windows 11 support
+
+TaskbarX now also works with the Windows 11 taskbar. Because that taskbar is drawn with XAML inside `explorer.exe`, TaskbarX loads a small helper, `TaskbarX11Hook.dll`, into Explorer (the same XAML diagnostics technique used by TranslucentTB and Windhawk). The helper only adds render transforms, so the original taskbar comes back as soon as TaskbarX is stopped (`TaskbarX.exe -stop`) or Explorer restarts.
+
+- The Start button sits at the far left, with Search and Task View next to it like on Windows 10.
+- The app icons are centered, and re-centered with an animation when icons are added or removed. The existing animation, speed, offset (`-ptbo`), center in between (`-cib`) and don't center (`-dct`) settings apply.
+- The Widgets button is hidden: made invisible, not clickable or hoverable, and moved out of the taskbar's bounds.
+
+Turning it off: `TaskbarX.exe -stop`, the Configurator's "Stop TaskbarX" button, or `TaskbarX.exe -toggle` (the `TaskbarX On-Off` shortcut that `build-win11.ps1` creates) to switch between on and off. When it's off, every value the helper changed is put back to what Explorer had and it stops watching the taskbar's layout, so you get the default Windows taskbar. The helper DLL itself stays loaded, idle, until Explorer restarts.
+
+Extra command-line options (all default to `1`; the Configurator's Extra tab has checkboxes for the first three):
+
+| Option | Meaning |
+| --- | --- |
+| `-w11sl=0/1` | Move the Start button to the left |
+| `-w11kl=0/1` | Keep Search and Task View next to Start (`0` centers them with the app icons) |
+| `-w11hw=0/1` | Hide the Widgets button |
+| `-w11sp=N` | Gap between the screen edge and the Start button, in pixels (default `6`) |
+| `-w11dbg=1` | Write a debug log to `%TEMP%\TaskbarX11Hook.log` |
+
+Building: run `build-win11.ps1`. It downloads the Windows SDK and C++/WinRT NuGet packages if needed, builds the 64-bit TaskbarX, the hook and the Configurator, and puts them together in `dist\TaskbarX`. Windows 11 support needs the 64-bit TaskbarX.exe, with `TaskbarX11Hook.dll` in the same folder.
+
+## How to use TaskbarX with Windows 11 (classic taskbar)?
  
 Do you want to install Windows 11 but you really like the taskbar of windows 10? Then you can actualy patch the Windows 11 Explorer to get back the old taskbar. Doing this will make TaskbarX functional again in Windows 11. https://github.com/valinet/ExplorerPatcher
 

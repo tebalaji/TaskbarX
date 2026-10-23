@@ -471,6 +471,9 @@ Class MainWindow
                         tbrounding.Text = val(1)
                     End If
 
+                    ReadWin11Argument(argument, val)
+
+
                     If argument.Contains("-tbsg=") Then
                         If val(1) = "1" Then
                             tbsegments.IsChecked = True
@@ -693,6 +696,9 @@ Class MainWindow
                     If argument.Contains("-tbr=") Then
                         tbrounding.Text = val(1)
                     End If
+
+                    ReadWin11Argument(argument, val)
+
 
                     If argument.Contains("-tbsg=") Then
                         If val(1) = "1" Then
@@ -942,6 +948,7 @@ Class MainWindow
                 If Checkbox16.IsChecked = True Then
                     parameters &= "-sti=1 "
                 End If
+                parameters &= Win11Parameters()
                 If checkboxconsole.IsChecked = True Then
                     parameters &= "-console "
                 End If
@@ -1170,6 +1177,7 @@ Class MainWindow
         If Checkbox16.IsChecked = True Then
             parameters &= "-sti=1 "
         End If
+        parameters &= Win11Parameters()
         If checkboxconsole.IsChecked = True Then
             parameters &= "-console "
         End If
@@ -1410,6 +1418,7 @@ Class MainWindow
         If Checkbox16.IsChecked = True Then
             parameters &= "-sti=1 "
         End If
+        parameters &= Win11Parameters()
         If checkboxconsole.IsChecked = True Then
             parameters &= "-console "
         End If
@@ -1572,6 +1581,9 @@ Class MainWindow
                     If argument.Contains("-tbr=") Then
                         tbrounding.Text = val(1)
                     End If
+
+                    ReadWin11Argument(argument, val)
+
 
                     If argument.Contains("-tbsg=") Then
                         If val(1) = "1" Then
@@ -1879,6 +1891,7 @@ Class MainWindow
         If Checkbox16.IsChecked = True Then
             parameters &= "-sti=1 "
         End If
+        parameters &= Win11Parameters()
         If Checkbox16.IsChecked = True Then
             parameters &= "-console "
         End If
@@ -2259,6 +2272,28 @@ Class MainWindow
         Loop Until Not GetAsyncKeyState(1) = 0
     End Sub
 
+    'Windows 11 options. TaskbarX turns them on by default, so they are always written explicitly.
+    Private Function Win11Parameters() As String
+        Return "-w11sl=" & If(CheckBoxW11Start.IsChecked = True, "1", "0") & " " &
+               "-w11kl=" & If(CheckBoxW11Buttons.IsChecked = True, "1", "0") & " " &
+               "-w11hw=" & If(CheckBoxW11Widgets.IsChecked = True, "1", "0") & " "
+    End Function
+
+    Private Sub ReadWin11Argument(argument As String, val() As String)
+        If val.Length < 2 Then
+            Return
+        End If
+        If argument.Contains("-w11sl=") Then
+            CheckBoxW11Start.IsChecked = val(1) = "1"
+        End If
+        If argument.Contains("-w11kl=") Then
+            CheckBoxW11Buttons.IsChecked = val(1) = "1"
+        End If
+        If argument.Contains("-w11hw=") Then
+            CheckBoxW11Widgets.IsChecked = val(1) = "1"
+        End If
+    End Sub
+
     Private Sub Button_Click_13(sender As Object, e As RoutedEventArgs)
 
         Dim parameters As String = ""
@@ -2384,6 +2419,7 @@ Class MainWindow
         If Checkbox16.IsChecked = True Then
             parameters &= "-sti=1 "
         End If
+        parameters &= Win11Parameters()
         If checkboxconsole.IsChecked = True Then
             parameters &= "-console "
         End If

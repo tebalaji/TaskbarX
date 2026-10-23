@@ -1,0 +1,5 @@
+LIBRARY TaskbarX11Hook
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE
+    TaskbarX11HookProc
