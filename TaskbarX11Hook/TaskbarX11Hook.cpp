@@ -67,6 +67,7 @@ struct HookSettings
     bool hideWidgets = true;      // hide the Widgets button
     int offset = 0;               // extra horizontal offset for the centered icons, in physical pixels
     int startPadding = 6;         // distance between the left edge and the Start button, in pixels
+    int taskbarStyle = 0;         // TaskbarX -tbs; non-zero = clear the XAML background so the accent shows
     int animationSpeed = 300;     // ms
     std::wstring animationStyle = L"cubiceaseinout";
     bool debug = false;           // log to %TEMP%\TaskbarX11Hook.log
@@ -106,6 +107,7 @@ static void LoadSettings()
         s.hideWidgets = ReadDword(key, L"HideWidgets", 1) != 0;
         s.offset = static_cast<int>(ReadDword(key, L"Offset", 0));
         s.startPadding = static_cast<int>(ReadDword(key, L"StartPadding", 6));
+        s.taskbarStyle = static_cast<int>(ReadDword(key, L"TaskbarStyle", 0));
         s.animationSpeed = static_cast<int>(ReadDword(key, L"AnimationSpeed", 300));
         s.debug = ReadDword(key, L"Debug", 0) != 0;
 
@@ -424,6 +426,13 @@ struct WidgetsState
     int64_t opacityCallback = 0;
 };
 
+// A taskbar background part we made invisible, with the Opacity local value it had before.
+struct BackgroundPart
+{
+    winrt::weak_ref<wux::UIElement> element;
+    wf::IInspectable opacity{ nullptr };
+};
+
 struct FrameState
 {
     winrt::weak_ref<wux::FrameworkElement> frame;
@@ -432,6 +441,7 @@ struct FrameState
     bool listening = false; // subscribed to LayoutUpdated
     ShiftMap shifts;
     WidgetsState widgets;
+    std::vector<BackgroundPart> background;
     std::atomic<bool> pending = false;
     bool dumped = false;
 };
@@ -517,11 +527,51 @@ static void HideWidgets(std::shared_ptr<FrameState> const& state, wux::Framework
     }
 }
 
+static void RestoreBackground(FrameState& state)
+{
+    for (auto const& part : state.background)
+    {
+        if (auto element = part.element.get())
+        {
+            RestoreLocalValue(element, wux::UIElement::OpacityProperty(), part.opacity);
+        }
+    }
+    state.background.clear();
+}
+
+// TaskbarX's transparent / blur / acrylic styles set an accent on the Shell_TrayWnd window, like on
+// Windows 10. Windows 11 paints an opaque XAML background (BackgroundFill, plus the BackgroundStroke
+// line along the top) over that window, so make those invisible to let the accent show through.
+static void ClearBackground(FrameState& state, wux::FrameworkElement const& frame)
+{
+    const bool applied = !state.background.empty() &&
+        std::all_of(state.background.begin(), state.background.end(), [](auto const& part) { return part.element.get() != nullptr; });
+    if (!applied)
+    {
+        RestoreBackground(state);
+        for (auto name : { L"BackgroundFill", L"BackgroundStroke" })
+        {
+            if (auto part = FindDescendant(frame, [name](auto const& fe) { return fe.Name() == name; }, 6))
+            {
+                state.background.push_back({ winrt::make_weak(part.as<wux::UIElement>()), LocalValueOf(part, wux::UIElement::OpacityProperty()) });
+            }
+        }
+    }
+    for (auto const& part : state.background)
+    {
+        if (auto element = part.element.get(); element && element.Opacity() != 0)
+        {
+            element.Opacity(0);
+        }
+    }
+}
+
 // Turning TaskbarX off: every value we changed goes back to what explorer had, and we stop listening
 // for layout changes, so the taskbar is left exactly as Windows draws it.
 static void RevertFrame(FrameState& state)
 {
     ShowWidgets(state);
+    RestoreBackground(state);
     for (auto& [identity, shift] : state.shifts)
     {
         RestoreShift(shift);
@@ -613,6 +663,15 @@ static void Relayout(std::shared_ptr<FrameState> const& statePtr)
     if (auto root = frame.XamlRoot())
     {
         scale = root.RasterizationScale();
+    }
+
+    if (settings.taskbarStyle != 0)
+    {
+        ClearBackground(state, frame);
+    }
+    else
+    {
+        RestoreBackground(state);
     }
 
     // The Widgets button may live outside the icon repeater, so search the whole frame.

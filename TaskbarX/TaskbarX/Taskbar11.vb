@@ -89,6 +89,7 @@ Public Class Taskbar11
             key.SetValue("CenterIcons", If(Settings.DontCenterTaskbar = 1, 0, 1), RegistryValueKind.DWord)
             key.SetValue("CenterInBetween", Settings.CenterInBetween, RegistryValueKind.DWord)
             key.SetValue("Offset", Settings.PrimaryTaskbarOffset, RegistryValueKind.DWord)
+            key.SetValue("TaskbarStyle", Settings.TaskbarStyle, RegistryValueKind.DWord)
             key.SetValue("AnimationSpeed", Settings.AnimationSpeed, RegistryValueKind.DWord)
             key.SetValue("AnimationStyle", Settings.AnimationStyle, RegistryValueKind.String)
             key.SetValue("Debug", Settings.Win11Debug, RegistryValueKind.DWord)

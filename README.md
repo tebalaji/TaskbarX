@@ -41,6 +41,7 @@ TaskbarX now also works with the Windows 11 taskbar. Because that taskbar is dra
 - The Start button sits at the far left, with Search and Task View next to it like on Windows 10.
 - The app icons are centered, and re-centered with an animation when icons are added or removed. The existing animation, speed, offset (`-ptbo`), center in between (`-cib`) and don't center (`-dct`) settings apply.
 - The Widgets button is hidden: made invisible, not clickable or hoverable, and moved out of the taskbar's bounds.
+- The taskbar styles (transparent, blur, acrylic, color) work too: the helper clears the taskbar's own XAML background so the style TaskbarX applies to the window shows through.
 
 Turning it off: `TaskbarX.exe -stop`, the Configurator's "Stop TaskbarX" button, or `TaskbarX.exe -toggle` (the `TaskbarX On-Off` shortcut that `build-win11.ps1` creates) to switch between on and off. When it's off, every value the helper changed is put back to what Explorer had and it stops watching the taskbar's layout, so you get the default Windows taskbar. The helper DLL itself stays loaded, idle, until Explorer restarts.
 

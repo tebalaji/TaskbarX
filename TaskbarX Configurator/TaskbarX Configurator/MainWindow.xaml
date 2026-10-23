@@ -7,7 +7,7 @@
         mc:Ignorable="d"
         Title="TaskbarX Configurator" Height="649.581" Width="863.329"
         ResizeMode="NoResize"
-       ContentRendered="Window_Loaded"
+       Loaded="Window_Loaded"
     xmlns:ui="http://schemas.modernwpf.com/2019"
         xmlns:emoji="clr-namespace:Emoji.Wpf;assembly=Emoji.Wpf"
 
