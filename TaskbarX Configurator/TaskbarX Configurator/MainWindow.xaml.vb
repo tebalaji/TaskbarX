@@ -610,11 +610,15 @@ Class MainWindow
 
     End Sub
 
+    'Updates come from this fork (the original ChrisAnd1998/TaskbarX repository is archived).
+    Private Const RepositoryUrl As String = "https://github.com/tebalaji/TaskbarX"
+    Private Const VersionUrl As String = "https://raw.githubusercontent.com/tebalaji/TaskbarX/master/VERSION"
+
     'Returns the contents of the VERSION file on GitHub, or Nothing when it can't be reached in time.
     Private Shared Function GetLatestVersion() As String
         Try
             System.Net.ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls11 Or SecurityProtocolType.Tls12
-            Dim request = CType(WebRequest.Create("https://raw.githubusercontent.com/ChrisAnd1998/FalconX-Center-Taskbar/master/VERSION"), HttpWebRequest)
+            Dim request = CType(WebRequest.Create(VersionUrl), HttpWebRequest)
             request.CachePolicy = New System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore)
             request.Timeout = 5000
             request.ReadWriteTimeout = 5000
@@ -628,9 +632,10 @@ Class MainWindow
         End Try
     End Function
 
-    Private Sub ShowUpdateStatus(ByVal latest As String)
+    'Shows the update status; returns True when a newer version is available.
+    Private Function ShowUpdateStatus(ByVal latest As String) As Boolean
         If String.IsNullOrEmpty(latest) OrElse latest.Length < 7 Then
-            Return
+            Return False
         End If
 
         If latest.Contains(Assembly.GetExecutingAssembly().GetName().Version.ToString()) Then
@@ -640,9 +645,11 @@ Class MainWindow
                 vers.Text = "This is a Pre-Release! Unstable."
             Else
                 vers.Text = "Update " & latest.Substring(0, 7) & " is available!"
+                Return True
             End If
         End If
-    End Sub
+        Return False
+    End Function
 
 
     Sub Migrate()
@@ -1502,33 +1509,19 @@ Class MainWindow
 
     End Sub
 
-    Private Sub Button_Click_4(sender As Object, e As RoutedEventArgs)
-
-        Try
-            Dim address As String = "https://raw.githubusercontent.com/ChrisAnd1998/FalconX-Center-Taskbar/master/VERSION"
-            Dim client As WebClient = New WebClient With {
-                .CachePolicy = New System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore)
-            }
-            Dim reader As StreamReader = New StreamReader(client.OpenRead(address))
-
-            Dim latest = reader.ReadToEnd.ToString
-
-            If latest.Contains(Assembly.GetExecutingAssembly().GetName().Version.ToString()) Then
-                vers.Text = "You are up to date."
-            Else
-                If latest.Substring(0, 7).ToString.Replace(".", "") <= Assembly.GetExecutingAssembly().GetName().Version.ToString().Replace(".", "") Then
-                    vers.Text = "This is a Pre-Release! Unstable."
-                Else
-                    vers.Text = "Update " & latest.Substring(0, 7) & " is available!"
-                    Process.Start("https://chrisandriessen.nl/taskbarx")
-                End If
-
-            End If
-
-            reader.Dispose()
-            client.Dispose()
-        Catch
-        End Try
+    'The "Check" button: checks again and opens the repository when there is an update.
+    Private Async Sub Button_Click_4(sender As Object, e As RoutedEventArgs)
+        Dim latest = Await System.Threading.Tasks.Task.Run(AddressOf GetLatestVersion)
+        If String.IsNullOrEmpty(latest) Then
+            vers.Text = "No connection.."
+            Return
+        End If
+        If ShowUpdateStatus(latest) Then
+            Try
+                Process.Start(RepositoryUrl)
+            Catch
+            End Try
+        End If
     End Sub
 
     Private Sub Button_Click_5(sender As Object, e As RoutedEventArgs)
