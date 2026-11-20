@@ -778,25 +778,37 @@ static void Relayout(std::shared_ptr<FrameState> const& statePtr)
         leftEnd = items[leftCount - 1].x + items[leftCount - 1].width + leftDelta;
     }
 
+    // The centered group ends with the last app button. Newer builds (26300.10075+) also put the system tray
+    // into the repeater after the apps; whatever comes after them stays where Windows puts it.
+    size_t centerEnd = leftCount;
+    for (size_t i = leftCount; i < items.size(); i++)
+    {
+        if (items[i].isTaskListButton)
+        {
+            centerEnd = i + 1;
+        }
+    }
+
     double centerDelta = 0;
-    if (leftCount < items.size())
+    if (leftCount < centerEnd)
     {
         const double first = items[leftCount].x;
-        const double last = items.back().x + items.back().width;
+        const double last = items[centerEnd - 1].x + items[centerEnd - 1].width;
+
+        // Where the tray starts: the first item after the apps, or else the TrayNotifyWnd window on older builds.
+        double trayLeft = centerEnd < items.size() ? items[centerEnd].x : TrayLeftInFrame(frameWidth, scale);
+        if (trayLeft <= leftEnd || trayLeft > frameWidth)
+        {
+            trayLeft = frameWidth;
+        }
 
         if (settings.centerIcons)
         {
-            double rightLimit = frameWidth;
-            if (settings.centerInBetween)
-            {
-                const double trayLeft = TrayLeftInFrame(frameWidth, scale);
-                if (trayLeft > leftEnd && trayLeft < frameWidth)
-                {
-                    rightLimit = trayLeft;
-                }
-            }
-            const double center = settings.centerInBetween ? (leftEnd + rightLimit) / 2 : frameWidth / 2;
+            const double center = settings.centerInBetween ? (leftEnd + trayLeft) / 2 : frameWidth / 2;
             centerDelta = center + settings.offset / scale - (first + last) / 2;
+
+            // Don't slide the icons under the tray (a long row of icons can't be centered on the screen).
+            centerDelta = std::min(centerDelta, trayLeft - last);
         }
 
         // Never slide the icons under the buttons on the left.
@@ -808,7 +820,8 @@ static void Relayout(std::shared_ptr<FrameState> const& statePtr)
 
     for (size_t i = 0; i < items.size(); i++)
     {
-        ShiftElement(state.shifts, items[i].element, i < leftCount ? leftDelta : centerDelta, settings);
+        const double delta = i < leftCount ? leftDelta : i < centerEnd ? centerDelta : 0;
+        ShiftElement(state.shifts, items[i].element, delta, settings);
     }
 }
 
